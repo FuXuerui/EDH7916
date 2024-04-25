@@ -1,0 +1,182 @@
+---
+title: "Final project analysis(option draft)"
+author: "Rui Xu"
+format:
+  typst:
+    toc: false
+    section-numbering: 1.1.a
+    table-align: center
+---
+
+## Instructions to run
+
+For this project, I used three .csv data files from IPEDS survey year 2022, Institutional Characteristics [\[HD2022\],]((https://nces.ed.gov/ipeds/datacenter/data/HD2022.zip)) Instructional Staff/Salaries [\[SAL2022_IS\]]((https://nces.ed.gov/ipeds/datacenter/data/SAL2022_IS.zip)), and Graduation Rates [\[GR2022\]]((https://nces.ed.gov/ipeds/datacenter/data/GR2022.zip)).These can be downloaded from [\[[here]{style="font-size: 13pt;"}\]](https://nces.ed.gov/ipeds/datacenter/DataFiles.aspx?gotoReportId=7&sid=346d0f23-23b8-43d0-a291-be0b5bccc1ee&rtid=7) by clicking on the named files name under “Data Files”. ***Important:*** ***To run this code, you should create a new folder called "final project" under the folder EDH-7916. Secondly, save these downloaded files in a sub-folder called “raw data”. However, the .qmd file should be saved in the "final project".*** Please set the working directory as
+
+```         
+("C:/Users/Admin/Desktop/EDH-7916/final project")
+```
+
+## Introduction
+
+It is common sense that teachers are the core force of educational institution development. Although many factors influence teachers' job satisfaction and motivation to teach, teachers' salaries play an important role in attracting talent and improving teachers' ability to do their jobs.
+
+Therefore, this project plans to examine the relationship between teacher salaries and teaching effectiveness in the United States. Teaching effectiveness can be evaluated by student graduation rates.
+
+A preliminary prediction is that teaching effectiveness will rise with increases in teacher salaries, excluding the influence of other extraneous factors.
+
+***data source***
+
+I will analyze teacher paychecks by obtaining teacher-related data from the *IPEDS database*. These data include demographic information about teachers and salaries.
+
+I will also obtain data related to student achievement from the IPEDS database to analyze teaching effectiveness. These data may include graduation rates.
+
+***Dependent variable selection**：*
+
+The dependent variable I am considering using is **student graduation rate**. For the effectiveness of exploration, this study will narrow the scope of graduation rates to 4-year institutions' completers within 150% of normal time.
+
+**Independent variable selection**：
+
+The independent variables related to teachers were selected for analysis. To simplify this Pilot study, the independent variable will be limited to **teachers' average salary.**
+
+## Data Wrangling and Analysis
+
+*Independent variable:*
+
+```{r, echo=FALSE}
+#| message: false
+library(tidyverse)
+teacher_ave_sal <- read_csv("raw data/SAL2022_IS/sal2022_is.csv")
+institution_info <- read.csv("raw data/hd2022.csv") %>% 
+  rename_all(tolower) %>%
+ select(unitid,instnm)
+clean_version_independ <- teacher_ave_sal %>% 
+  rename_all(tolower) %>% 
+  select(unitid,arank,sainstt,saoutlt) %>% 
+  filter(arank==7) %>% 
+  # arank==7 Means all number of active employees
+  mutate(aver_salary=saoutlt/sainstt) %>% 
+  left_join(institution_info,by="unitid") %>%
+  select(unitid,instnm,arank,sainstt,saoutlt,aver_salary)
+sum_indpen_variable <- clean_version_independ %>% 
+  summarise(mean=mean(aver_salary),
+          min=min(aver_salary),
+          maxsum = max(aver_salary) )
+
+```
+
+For the independent variable, I processed the raw data, keeping only the organization code, the total number of all faculty employees (without distinguishing between RANK), and the salary of each school. Finally, the average salary of teachers in each school was calculated.
+
+```{r,echo=FALSE}
+library(knitr)
+sum_indpen_variable %>% 
+kable(align = "c")
+```
+
+*Dependent variable:* For the Dependent variable, I processed the raw data, keeping only the organization code, student number of 4-year institutions, Adjusted cohort (revised cohort minus exclusions) for each institution, and student number of 4-year institutions, Completers within 150% of normal time. Finally, the Academic completion rate in each school was calculated.
+
+```{r, echo=FALSE}
+#| message: false
+graduate_rates <- read.csv("raw data/gr2022.csv")
+clean_version_depend <- graduate_rates %>% 
+  rename_all(tolower) %>% 
+  select(unitid,grtype,grtotlt) %>% 
+  filter(grtype %in% c(2, 3))  %>% 
+  pivot_wider(names_from = grtype, values_from = grtotlt,names_prefix = "grtype") %>% 
+  mutate(normal_graduate_rates= format(replace_na(grtype3 / grtype2 * 100, 0), digits = 2))
+clean_version_depend$normal_graduate_rates <- as.numeric(clean_version_depend$normal_graduate_rates)
+sum_depen_variable <- clean_version_depend %>% 
+   summarise(mean=mean(normal_graduate_rates),
+          min=min(normal_graduate_rates),
+          maxsum = max(normal_graduate_rates) )
+ merged_file <- clean_version_independ %>% 
+ left_join(clean_version_depend,by="unitid") %>% 
+filter(!is.na(normal_graduate_rates))
+```
+
+`#set align(center)`{=typst}
+
+```{r,echo=FALSE}
+sum_depen_variable%>% 
+  kable()
+```
+
+`#set align(left)`{=typst}
+
+To simplify the subsequent data visualization program, I merged the two processed data frames. The descriptive statistics table for the overall data is as follows
+
+```{r, echo=FALSE}
+#| message: false
+#| warning: FALSE
+ merged_file <- merged_file%>% 
+    mutate(salary_cata=cut(merged_file$aver_salary,breaks = 5,labels = c("1", "2", "3", "4", "5")))
+ merged_file$normal_graduate_rates <- as.numeric(merged_file$normal_graduate_rates)
+##It's very weird here, if the two parts above and below merged-_files are concatenated with pipe, the render fails. The object 'merged_file' is not found.
+ sum_merged_file <- merged_file %>% 
+   group_by(salary_cata) %>% 
+   summarise(mean_graduate_rate=mean(normal_graduate_rates),
+             mean_salary=mean(aver_salary))
+```
+
+```{r, echo=FALSE}
+sum_merged_file%>% 
+  kable()
+```
+
+## Data visualization
+
+```{r, echo=FALSE}
+#| message: false
+#| warning: FALSE
+picture1 <- ggplot(data = merged_file) +
+  geom_histogram(mapping = aes(x = normal_graduate_rates), stat = "count", fill = "#0021A5", color = "#F2A900") +
+  labs(x = "Normal Graduate Rates (%)", y = "Count", title = "Distribution of Normal Graduate Rates") +
+  theme_minimal()
+picture1
+```
+
+```{r, echo=FALSE}
+merged_file$normal_graduate_rates <- as.numeric(merged_file$normal_graduate_rates)
+picture2 <- ggplot(data = merged_file) +
+  scale_x_continuous(breaks = seq(0, max(merged_file$aver_salary), by = 20000)) +  
+  geom_point(mapping = aes(x = aver_salary, y = normal_graduate_rates),size=0.7,color = "#FA4616") +
+  geom_smooth(mapping = aes(x = aver_salary, y = normal_graduate_rates), method = "lm", se =TRUE,level = 0.90)
+  labs(x = "Independent Variable (aver_salary)", y = "Dependent Variable (normal_graduate_rates)", 
+       title = "Scatter Plot") +
+  theme_minimal()+
+ scale_y_continuous(breaks = seq(0, max(merged_file$normal_graduate_rates), by = 5),expand = c(0.01, 0.1))
+picture2
+```
+
+```{r, echo=FALSE}
+#| message: false
+sampled_data1 <- merged_file %>%
+  sample_frac(1)
+sampled_data1$normal_graduate_rates <- as.numeric(sampled_data1$normal_graduate_rates)
+
+picture3 <- ggplot(data = sampled_data1) +
+  scale_y_continuous(breaks = seq(0, max(sampled_data1$normal_graduate_rates), by = 10)) + 
+  geom_boxplot(mapping = aes(x = as.factor(salary_cata), y = normal_graduate_rates, group = as.factor(salary_cata)), 
+               fill = "#0021A5", color = "#22884c", width = 0.8) +
+  labs(x = "Independent Variable (salary_cata)", y = "Dependent Variable normal_graduate_rates",
+       title = "Boxplot of Normal Graduate Rates by Salary Category")
+
+print(picture3)
+```
+
+```{r, echo=FALSE}
+#| message: false
+sampled_data2 <- merged_file %>% 
+  sample_frac(1)
+sampled_data2$normal_graduate_rates <- as.numeric(sampled_data2$normal_graduate_rates)
+picture4 <- ggplot(data = sampled_data2) +
+  geom_histogram(mapping = aes(x = normal_graduate_rates, fill = salary_cata), alpha = 0.5) +
+  facet_wrap(~ salary_cata, scales = "free")+
+  labs(x = "Dependent Variable(normal_graduate_rates)", y = "Count", title = "Distribution of Dependent Variable by Independent Variable") +
+  theme_minimal()
+
+print(picture4)
+```
+
+## **Conclusion:**
+
+Although we can not conclude that the completion rate of students within 150% of normal time in 4-year institutions will continue to increase as the average teacher salary increases, we can be confident to point out that institutions with high average teacher salaries have extremely high student graduation rates. As a result, It is worth to increase teachers' income.
